@@ -274,13 +274,24 @@ details[open].result summary::before { content: "▾"; }
 
 .filter { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin: 12px 0; }
 .filter-label { font-weight: 600; }
-.chips { display: flex; flex-wrap: wrap; gap: 6px; }
-.chip-link {
-  display: inline-block; padding: 5px 12px; border-radius: 999px; border: 1px solid var(--border);
-  background: var(--surface); color: var(--text); text-decoration: none; font-weight: 600; font-size: 0.9rem;
+.select { position: relative; display: inline-block; min-width: 220px; max-width: 100%; }
+.select-btn {
+  display: inline-flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%;
+  padding: 6px 10px; border-radius: 8px; border: 1px solid var(--border);
+  background: var(--surface); color: var(--text); font: inherit; text-align: left; cursor: pointer;
 }
-.chip-link:hover { border-color: var(--accent); }
-.chip-link[aria-current="page"] { background: var(--accent-soft); color: var(--accent-ink); border-color: var(--accent); }
+.select-btn .chev { flex: none; color: var(--muted); transition: transform 0.15s; }
+.select-btn[aria-expanded="true"] .chev { transform: rotate(180deg); }
+.select-list {
+  position: absolute; top: calc(100% + 4px); left: 0; z-index: 5;
+  min-width: 100%; max-width: min(360px, calc(100vw - 28px)); max-height: 60vh; overflow: auto;
+  margin: 0; padding: 4px; list-style: none;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 8px; box-shadow: var(--shadow);
+}
+.select-list:focus { outline: none; }
+.select-option { padding: 8px 10px; border-radius: 6px; cursor: pointer; }
+.select-option.active { background: var(--surface-2); }
+.select-option[aria-selected="true"] { font-weight: 600; color: var(--accent-ink); }
 
 /* ---- fail-loud banner ---------------------------------------------------- */
 

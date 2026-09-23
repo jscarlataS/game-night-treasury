@@ -454,14 +454,74 @@ function viewPerformance() {
   return { node: fragment(parts), title: T.performance.title, nav: 'performance' };
 }
 
-/** Per-game filter as plain links: shareable routes, no native dropdown. */
+/**
+ * Per-game filter: a dropdown built from page elements rather than a native
+ * <select>, so the list opens inside the page and never depends on a native
+ * popup. Choosing a game navigates to #/wins/<game>, so the route stays
+ * shareable. Keyboard: arrows open and move, Enter or Space choose, Escape closes.
+ */
 function gameFilter(gameId) {
-  const chip = (id, label) => el('a', {
-    class: 'chip-link', href: id ? `#/wins/${id}` : '#/wins', 'aria-current': id === gameId ? 'page' : null,
-  }, label);
-  return el('nav', { class: 'filter', 'aria-label': T.wins.filter },
-    el('span', { class: 'filter-label' }, T.wins.filter),
-    el('div', { class: 'chips' }, chip(null, T.wins.allGames), DATA.gameOrder.map((id) => chip(id, gameName(id)))));
+  const options = [{ id: null, label: T.wins.allGames }, ...DATA.gameOrder.map((id) => ({ id, label: gameName(id) }))];
+  const selected = Math.max(0, options.findIndex((o) => o.id === gameId));
+  const listId = 'game-filter-list';
+  const button = el('button', {
+    class: 'select-btn', type: 'button', id: 'game-filter',
+    'aria-haspopup': 'listbox', 'aria-expanded': 'false', 'aria-controls': listId, 'aria-labelledby': 'game-filter-label game-filter',
+  }, el('span', { class: 'select-value' }, options[selected].label), chevron());
+  const items = options.map((o, i) => el('li', {
+    class: 'select-option', role: 'option', id: `game-option-${o.id || 'all'}`, 'aria-selected': i === selected ? 'true' : 'false',
+  }, o.label));
+  const list = el('ul', { class: 'select-list', id: listId, role: 'listbox', tabindex: '-1', 'aria-labelledby': 'game-filter-label', hidden: true }, items);
+  const wrap = el('div', { class: 'select' }, button, list);
+  let open = false;
+  let active = selected;
+  const setActive = (i) => {
+    active = (i + options.length) % options.length;
+    items.forEach((li, j) => li.classList.toggle('active', j === active));
+    list.setAttribute('aria-activedescendant', items[active].id);
+    if (items[active].scrollIntoView) items[active].scrollIntoView({ block: 'nearest' });
+  };
+  const onOutside = (e) => { if (!wrap.contains(e.target)) hide(false); };
+  const show = () => {
+    if (open) return;
+    open = true;
+    list.hidden = false;
+    button.setAttribute('aria-expanded', 'true');
+    setActive(selected);
+    list.focus({ preventScroll: true });
+    document.addEventListener('pointerdown', onOutside, true);
+  };
+  const hide = (refocus) => {
+    if (!open) return;
+    open = false;
+    list.hidden = true;
+    button.setAttribute('aria-expanded', 'false');
+    document.removeEventListener('pointerdown', onOutside, true);
+    if (refocus) button.focus({ preventScroll: true });
+  };
+  const choose = (i) => {
+    hide(true);
+    const o = options[i];
+    if (o.id !== gameId) location.hash = o.id ? `#/wins/${o.id}` : '#/wins';
+  };
+  button.addEventListener('click', () => (open ? hide(true) : show()));
+  button.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); show(); }
+  });
+  list.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowDown') { e.preventDefault(); setActive(active + 1); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setActive(active - 1); }
+    else if (e.key === 'Home') { e.preventDefault(); setActive(0); }
+    else if (e.key === 'End') { e.preventDefault(); setActive(options.length - 1); }
+    else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); choose(active); }
+    else if (e.key === 'Escape') { e.preventDefault(); hide(true); }
+    else if (e.key === 'Tab') hide(false);
+  });
+  items.forEach((li, i) => {
+    li.addEventListener('click', () => choose(i));
+    li.addEventListener('pointermove', () => { if (i !== active) setActive(i); });
+  });
+  return el('div', { class: 'filter' }, el('span', { class: 'filter-label', id: 'game-filter-label' }, T.wins.filter), wrap);
 }
 
 function viewWins(gameId) {
@@ -597,7 +657,12 @@ function parseRoute() {
 
 function route() {
   const view = parseRoute();
+  const focusedId = document.activeElement ? document.activeElement.id : '';
   document.getElementById('main').replaceChildren(view.node);
+  if (focusedId) {
+    const again = document.getElementById(focusedId);
+    if (again) again.focus({ preventScroll: true });
+  }
   document.title = `${view.title} · ${T.site.title}`;
   for (const a of document.querySelectorAll('#nav a')) {
     if (a.dataset.nav === view.nav) a.setAttribute('aria-current', 'page');
