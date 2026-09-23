@@ -454,13 +454,20 @@ function viewPerformance() {
   return { node: fragment(parts), title: T.performance.title, nav: 'performance' };
 }
 
+/** Per-game filter as plain links: shareable routes, no native dropdown. */
+function gameFilter(gameId) {
+  const chip = (id, label) => el('a', {
+    class: 'chip-link', href: id ? `#/wins/${id}` : '#/wins', 'aria-current': id === gameId ? 'page' : null,
+  }, label);
+  return el('nav', { class: 'filter', 'aria-label': T.wins.filter },
+    el('span', { class: 'filter-label' }, T.wins.filter),
+    el('div', { class: 'chips' }, chip(null, T.wins.allGames), DATA.gameOrder.map((id) => chip(id, gameName(id)))));
+}
+
 function viewWins(gameId) {
   if (gameId !== null && !DATA.gameOrder.includes(gameId)) return viewNotFound();
   const rows = S.winsRows(DATA.playerResults, gameId);
-  const select = el('select', { id: 'game-filter', onchange: (e) => { location.hash = e.target.value ? `#/wins/${e.target.value}` : '#/wins'; } },
-    el('option', { value: '' }, T.wins.allGames),
-    DATA.gameOrder.map((id) => el('option', { value: id, selected: id === gameId ? true : null }, gameName(id))));
-  const parts = [viewHead(T.wins.title, T.wins.rule), el('div', { class: 'filter' }, el('label', { for: 'game-filter' }, T.wins.filter), select)];
+  const parts = [viewHead(T.wins.title, T.wins.rule), gameFilter(gameId)];
   if (!rows.length) parts.push(el('p', { class: 'empty' }, T.wins.empty));
   else {
     parts.push(dataTable({

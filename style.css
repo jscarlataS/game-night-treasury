@@ -272,8 +272,15 @@ details[open].result summary::before { content: "▾"; }
 
 /* ---- wins filter --------------------------------------------------------- */
 
-.filter { display: flex; align-items: center; gap: 10px; margin: 12px 0; }
-.filter select { font: inherit; padding: 6px 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--text); max-width: 100%; min-width: 0; }
+.filter { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin: 12px 0; }
+.filter-label { font-weight: 600; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip-link {
+  display: inline-block; padding: 5px 12px; border-radius: 999px; border: 1px solid var(--border);
+  background: var(--surface); color: var(--text); text-decoration: none; font-weight: 600; font-size: 0.9rem;
+}
+.chip-link:hover { border-color: var(--accent); }
+.chip-link[aria-current="page"] { background: var(--accent-soft); color: var(--accent-ink); border-color: var(--accent); }
 
 /* ---- fail-loud banner ---------------------------------------------------- */
 
