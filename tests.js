@@ -402,7 +402,8 @@ test('16.10 from = 2026-09-15 is rejected', () => {
   assertError(errors, G, 2, /must be the 1st of a month/);
 });
 test('16.10 a result dated before the game\'s first from is rejected', () => {
-  const errors = errorsOf(['2026-08-29,dune,1,1,ruby', '2026-08-29,dune,1,2,opal']);
+  const games = 'id,name,weight,from\ndune,Dune: Imperium – Uprising,100,2026-09-01\n';
+  const errors = errorsOf(['2026-08-29,dune,1,1,ruby', '2026-08-29,dune,1,2,opal'], { games });
   assertError(errors, R, 2, /no weight in effect on 2026-08-29; its first from is 2026-09-01/);
   assertError(errors, R, 3, /no weight in effect/);
 });

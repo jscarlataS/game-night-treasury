@@ -384,7 +384,11 @@ export function build(texts, today) {
   }
   if (errors.length) return { errors, data: null };
   errors.push(...validate(raw, today));
-  if (errors.length) return { errors, data: null };
+  if (errors.length) {
+    const order = Object.values(FILES);
+    errors.sort((a, b) => order.indexOf(a.file) - order.indexOf(b.file) || a.line - b.line);
+    return { errors, data: null };
+  }
   return { errors: [], data: derive(raw) };
 }
 

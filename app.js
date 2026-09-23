@@ -83,6 +83,17 @@ function formatMonth(month) {
   return `${T.months[m - 1]} ${y}`;
 }
 
+function formatShortMonth(month) {
+  const [y, m] = month.split('-').map(Number);
+  return `${T.monthsShort[m - 1]} ${y}`;
+}
+
+/** A date that wraps once, between day and year, never inside either. */
+function dateCell(iso) {
+  const [y, m, d] = iso.split('-').map(Number);
+  return el('span', { class: 'date-cell' }, el('span', { class: 'd-day' }, `${d} ${T.monthsShort[m - 1]}`), ' ', el('span', { class: 'd-year' }, y));
+}
+
 function localToday() {
   const d = new Date();
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
@@ -499,7 +510,7 @@ function viewPlayer(id) {
         caption: `${T.player.results}: ${p.nickname}`,
         columns: [{ label: T.player.cols.date }, { label: T.player.cols.game }, { label: T.player.cols.place }, { label: T.player.cols.points, numeric: true }],
         rows: [...sum.results].reverse().map((r) => ({
-          cells: [formatDate(r.date), gameName(r.game), placeChip(r), fmt(r.points10)],
+          cells: [dateCell(r.date), gameName(r.game), placeChip(r), fmt(r.points10)],
           details: () => el('div', null, el('h3', { class: 'detail-title' }, T.math.title), mathPanel(r), seatmatesNote(r)),
         })),
       })));
@@ -517,7 +528,7 @@ function viewHall() {
       columns: [{ label: T.hall.cols.month }, { label: T.hall.cols.winner }, { label: T.hall.cols.total, numeric: true }, { label: T.hall.cols.margin, numeric: true }],
       rows: hall.map((h) => ({
         cells: [
-          el('a', { href: monthHref(h.month) }, formatMonth(h.month)),
+          el('a', { href: monthHref(h.month), 'aria-label': formatMonth(h.month) }, formatShortMonth(h.month)),
           el('span', { class: 'who' }, playerLink(h.winner.player), h.step > 1 ? el('span', { class: 'chip' }, T.hall.tieChip) : null),
           fmt(h.winner.total10),
           h.margin10 === null ? T.hall.noRival : fmt(h.margin10),
