@@ -139,7 +139,7 @@ Commit message conventions: `results: YYYY-MM-DD`,
   leaves. A guest gets an ID like anyone else.
 - Nickname policy: unique, no commas, no surnames, no initials, nothing a
   search engine links to a person.
-- The seven stones in use were tuned so that every pair stays distinguishable
+- The eight stones in use were tuned so that every pair stays distinguishable
   under colour-vision deficiency on both themes. When a new player joins, pick a
   free stone from the pool; the chart also carries a legend, tooltips and the
   standings table, so no reading depends on colour alone.

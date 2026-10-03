@@ -608,7 +608,7 @@ test('the shipped data files parse and validate', () => {
   const today = new Date().toISOString().slice(0, 10);
   const { errors, data } = S.build(texts, today);
   assert.deepEqual(errors.map(String), []);
-  assert.equal(data.players.length, 7);
+  assert.equal(data.players.length, 8);
   assert.equal(data.games.length, 6);
   assert.equal(data.gemHex.size, 24);
   for (const p of data.players) assert.match(p.hex, /^#[0-9A-F]{6}$/);
