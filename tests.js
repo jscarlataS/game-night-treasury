@@ -527,6 +527,34 @@ test('race data: cumulative totals per player per distinct date, carried forward
   assert.deepEqual(s.jade, [0, 60, 60]);
   assert.deepEqual(race.series.map((x) => x.player), ['ruby', 'opal', 'jade']);
 });
+test('game night: dates newest first; games in ledger order, seats best first with points; totals ranked', () => {
+  const data = ok([
+    ...dune4('2026-09-19', 1, 'ruby', 'opal', 'jade', 'onyx'),
+    '2026-10-03,wizard,1,2,ruby', '2026-10-03,wizard,1,1,opal+jade', '2026-10-03,wizard,1,3,onyx',
+    '2026-10-03,wizard,2,1,ruby', '2026-10-03,wizard,2,2,onyx',
+    '2026-10-03,catan,1,1,onyx', '2026-10-03,catan,1,2,ruby',
+  ]);
+  assert.deepEqual(S.nightDates(data.playerResults), ['2026-10-03', '2026-09-19']);
+  assert.equal(S.nightSummary(data.instances, data.playerResults, '2026-10-04'), null);
+  const night = S.nightSummary(data.instances, data.playerResults, '2026-10-03');
+  assert.deepEqual(night.games.map((g) => [g.game, g.round, g.repeated]), [['wizard', 1, true], ['wizard', 2, true], ['catan', 1, false]]);
+  const first = night.games[0];
+  assert.equal(first.n, 3);
+  assert.equal(first.weight, 40);
+  assert.deepEqual(first.seats.map((x) => [x.players, x.p, x.points10, x.win, x.last]), [
+    [['opal', 'jade'], 1, 400, true, false],
+    [['ruby'], 2, 160, false, false],
+    [['onyx'], 3, 40, false, true],
+  ]);
+  // ruby 16.0 + 40.0 + 6.0 = 62.0; onyx 4.0 + 4.0 + 60.0 = 68.0; opal and jade 40.0 each
+  assert.deepEqual(night.rows.map((r) => [r.rank, r.player, r.total10, r.wins, r.games]), [
+    [1, 'onyx', 680, 1, 3], [2, 'ruby', 620, 1, 3], [3, 'opal', 400, 1, 1], [3, 'jade', 400, 1, 1],
+  ]);
+  const sept = S.nightSummary(data.instances, data.playerResults, '2026-09-19');
+  assert.equal(sept.games.length, 1);
+  assert.equal(sept.games[0].repeated, false);
+  assert.equal(sept.rows.length, 4);
+});
 test('player summary: form is the last five, streaks, best and worst game by mean unrounded score', () => {
   const data = ok([
     '2026-09-01,dune,1,1,ruby', '2026-09-01,dune,1,2,opal',           // W

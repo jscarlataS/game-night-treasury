@@ -162,6 +162,7 @@ The site refuses to render on any of these, naming the file and line:
 Single page with hash routes, every route shareable:
 
 - `#/` current month, `#/month/YYYY-MM` any month
+- `#/night` the latest game night, `#/night/YYYY-MM-DD` any night
 - `#/performance`
 - `#/wins`, `#/wins/<gameId>`
 - `#/player/<id>`
@@ -176,7 +177,7 @@ swap of those two files.
 ## Development
 
 ```
-node tests.js              # 65 tests, Node built-ins only
+node tests.js              # 66 tests, Node built-ins only
 python -m http.server      # preview at http://localhost:8000/
 ```
 

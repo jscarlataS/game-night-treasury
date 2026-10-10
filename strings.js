@@ -15,6 +15,7 @@ export const STRINGS = {
   nav: {
     label: 'Boards',
     month: 'Month',
+    night: 'Game night',
     performance: 'Performance',
     wins: 'Wins',
     hall: 'Hall of Snacks',
@@ -54,6 +55,20 @@ export const STRINGS = {
     chartStart: 'start',
     standings: 'Standings',
     results: 'Results this month',
+    cols: { player: 'Player', points: 'Points', wins: 'Wins', games: 'Games' },
+  },
+  night: {
+    title: 'Game night',
+    rule: 'Every game of one evening, seat by seat, and what the night added to the monthly board.',
+    empty: 'No games on this date. Step to a night that was played.',
+    emptyNoData: 'No games recorded yet. The vault stays empty until the first night.',
+    prev: 'Earlier night',
+    next: 'Later night',
+    totals: 'The night’s points',
+    games: 'Games played',
+    round: 'game {round}',
+    meta: '{n} seats · weight {weight}',
+    results: 'Results this night',
     cols: { player: 'Player', points: 'Points', wins: 'Wins', games: 'Games' },
   },
   performance: {
@@ -124,5 +139,6 @@ export const STRINGS = {
   ],
   ordinal: { 1: 'st', 2: 'nd', 3: 'rd', other: 'th' },
   months: ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'],
+  weekdays: ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'],
   monthsShort: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
 };

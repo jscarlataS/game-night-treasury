@@ -73,6 +73,11 @@ function formatDate(iso) {
   return `${d} ${T.monthsShort[m - 1]} ${y}`;
 }
 
+function formatLongDate(iso) {
+  const [y, m, d] = iso.split('-').map(Number);
+  return `${T.weekdays[new Date(Date.UTC(y, m - 1, d)).getUTCDay()]}, ${d} ${T.months[m - 1]} ${y}`;
+}
+
 function formatShortDate(iso) {
   const [, m, d] = iso.split('-').map(Number);
   return `${d} ${T.monthsShort[m - 1]}`;
@@ -432,6 +437,64 @@ function viewMonth(month) {
 }
 
 // ---------------------------------------------------------------------------
+// Game night.
+// ---------------------------------------------------------------------------
+
+function nightSwitcher(date, dates) {
+  const older = dates.find((d) => d < date);
+  const newer = [...dates].reverse().find((d) => d > date);
+  const link = (target, label, glyph, cls) => (target
+    ? el('a', { class: `switch ${cls}`, href: `#/night/${target}`, 'aria-label': `${label}: ${formatDate(target)}` }, glyph)
+    : el('span', { class: `switch ${cls} disabled`, 'aria-hidden': 'true' }, glyph));
+  return el('nav', { class: 'switcher', 'aria-label': T.night.title },
+    link(older, T.night.prev, '‹', 'prev'),
+    el('h2', { class: 'month-name' }, formatLongDate(date)),
+    link(newer, T.night.next, '›', 'next'));
+}
+
+function seatPlayers(ids) {
+  return el('span', { class: 'seat-players' }, ids.map((id, i) => [i ? el('span', { class: 'muted' }, ' + ') : null, playerLink(id)]));
+}
+
+function nightGame(g) {
+  const title = g.repeated ? `${gameName(g.game)} · ${fill(T.night.round, { round: g.round })}` : gameName(g.game);
+  return el('section', { class: 'card night-game' },
+    el('header', { class: 'night-game-head' },
+      el('h3', null, title),
+      el('span', { class: 'muted small' }, fill(T.night.meta, { n: g.n, weight: g.weight }))),
+    el('ol', { class: 'seats' }, g.seats.map((seat) => el('li', { class: 'seat' },
+      placeChip(seat), seatPlayers(seat.players), el('span', { class: 'seat-points num' }, fmt(seat.points10))))));
+}
+
+function viewNight(date) {
+  const dates = S.nightDates(DATA.playerResults);
+  if (date === null) date = dates[0] ?? null;
+  const parts = [viewHead(T.night.title, T.night.rule)];
+  if (date === null) {
+    parts.push(el('p', { class: 'empty' }, T.night.emptyNoData));
+    return { node: fragment(parts), title: T.night.title, nav: 'night' };
+  }
+  parts.push(nightSwitcher(date, dates));
+  const night = S.nightSummary(DATA.instances, DATA.playerResults, date);
+  if (!night) parts.push(el('p', { class: 'empty' }, T.night.empty));
+  else {
+    parts.push(el('section', null,
+      el('h2', null, T.night.totals),
+      dataTable({
+        caption: `${T.night.totals}, ${formatDate(date)}`,
+        columns: [{ label: T.night.cols.player }, { label: T.night.cols.points, numeric: true }, { label: T.night.cols.wins, numeric: true }, { label: T.night.cols.games, numeric: true }],
+        rows: night.rows.map((row) => ({
+          cells: [whoCell(row.rank, row.player), fmt(row.total10), row.wins, row.games],
+          details: () => el('div', null, el('h3', { class: 'detail-title' }, T.night.results), el('div', { class: 'results' }, row.results.map(resultDetails))),
+        })),
+      }),
+      el('p', { class: 'small' }, el('a', { href: monthHref(S.monthOf(date)) }, `${T.ui.viewMonth}: ${formatMonth(S.monthOf(date))}`))));
+    parts.push(el('section', null, el('h2', null, T.night.games), night.games.map(nightGame)));
+  }
+  return { node: fragment(parts), title: `${T.night.title}, ${formatDate(date)}`, nav: 'night' };
+}
+
+// ---------------------------------------------------------------------------
 // Performance, wins, player, hall.
 // ---------------------------------------------------------------------------
 
@@ -577,7 +640,7 @@ function viewPlayer(id) {
         caption: `${T.player.results}: ${p.nickname}`,
         columns: [{ label: T.player.cols.date }, { label: T.player.cols.game }, { label: T.player.cols.place }, { label: T.player.cols.points, numeric: true }],
         rows: [...sum.results].reverse().map((r) => ({
-          cells: [dateCell(r.date), gameName(r.game), placeChip(r), fmt(r.points10)],
+          cells: [el('a', { href: `#/night/${r.date}` }, dateCell(r.date)), gameName(r.game), placeChip(r), fmt(r.points10)],
           details: () => el('div', null, el('h3', { class: 'detail-title' }, T.math.title), mathPanel(r), seatmatesNote(r)),
         })),
       })));
@@ -627,7 +690,7 @@ function renderChrome() {
   document.getElementById('tagline').textContent = T.site.tagline;
   const nav = document.getElementById('nav');
   nav.setAttribute('aria-label', T.nav.label);
-  nav.replaceChildren(...[['month', '#/'], ['performance', '#/performance'], ['wins', '#/wins'], ['hall', '#/hall']]
+  nav.replaceChildren(...[['month', '#/'], ['night', '#/night'], ['performance', '#/performance'], ['wins', '#/wins'], ['hall', '#/hall']]
     .map(([key, href]) => el('a', { href, 'data-nav': key }, T.nav[key])));
   document.getElementById('foot').replaceChildren(el('p', null, T.site.footer), el('p', { class: 'muted small' }, T.site.computed));
   const skip = document.getElementById('skip');
@@ -648,6 +711,8 @@ function parseRoute() {
   }
   if (parts.length === 0) return viewMonth(currentMonth());
   if (parts[0] === 'month' && parts.length === 2 && S.isValidMonth(parts[1])) return viewMonth(parts[1]);
+  if (parts[0] === 'night' && parts.length === 1) return viewNight(null);
+  if (parts[0] === 'night' && parts.length === 2 && S.isValidDate(parts[1])) return viewNight(parts[1]);
   if (parts[0] === 'performance' && parts.length === 1) return viewPerformance();
   if (parts[0] === 'wins' && parts.length <= 2) return viewWins(parts[1] ?? null);
   if (parts[0] === 'player' && parts.length === 2) return viewPlayer(parts[1]);

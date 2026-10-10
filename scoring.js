@@ -419,11 +419,10 @@ export function monthsWithGames(playerResults) {
   return [...new Set(playerResults.map((r) => r.month))].sort().reverse();
 }
 
-/** Monthly board rows: total, wins, games per player, ranked by total with shared ranks. */
-export function monthlyRows(playerResults, month) {
+/** Total, wins and games per player over some results, ranked by total with shared ranks. */
+function totalsRows(results) {
   const byPlayer = new Map();
-  for (const r of playerResults) {
-    if (r.month !== month) continue;
+  for (const r of results) {
     let row = byPlayer.get(r.player);
     if (!row) {
       row = { player: r.player, total10: 0, wins: 0, games: 0, results: [] };
@@ -435,6 +434,11 @@ export function monthlyRows(playerResults, month) {
     row.results.push(r);
   }
   return rankSorted([...byPlayer.values()], (a, b) => b.total10 - a.total10);
+}
+
+/** Monthly board rows: total, wins, games per player, ranked by total with shared ranks. */
+export function monthlyRows(playerResults, month) {
+  return totalsRows(playerResults.filter((r) => r.month === month));
 }
 
 /** The six tiebreak steps, in order. Step numbers are 1-based. */
@@ -507,6 +511,44 @@ export function raceData(playerResults, month) {
 /** Hall of snacks: one resolved entry per month with games, newest first. */
 export function hallRows(playerResults) {
   return monthsWithGames(playerResults).map((m) => resolveMonth(playerResults, m));
+}
+
+// ---------------------------------------------------------------------------
+// Game night: everything played on one date.
+// ---------------------------------------------------------------------------
+
+/** Dates with at least one game instance, newest first. */
+export function nightDates(playerResults) {
+  return [...new Set(playerResults.map((r) => r.date))].sort().reverse();
+}
+
+/**
+ * One game night: its instances in ledger order, each seat best place first
+ * with its points, and the night's totals per player ranked like the monthly
+ * board. Returns null for a date without games.
+ */
+export function nightSummary(instances, playerResults, date) {
+  const tonight = instances.filter((inst) => inst.date === date);
+  if (tonight.length === 0) return null;
+  const games = tonight.map((inst) => {
+    const maxPlace = Math.max(...inst.seats.map((s) => s.place));
+    return {
+      game: inst.game,
+      round: inst.round,
+      repeated: tonight.filter((i) => i.game === inst.game).length > 1,
+      n: inst.n,
+      weight: inst.weight,
+      seats: [...inst.seats].sort((a, b) => a.place - b.place || a.line - b.line).map((s) => ({
+        players: s.players,
+        n: inst.n,
+        p: s.place,
+        points10: points10(inst.weight, inst.n, s.place),
+        win: s.place === 1,
+        last: s.place !== 1 && s.place === maxPlace,
+      })),
+    };
+  });
+  return { date, games, rows: totalsRows(playerResults.filter((r) => r.date === date)) };
 }
 
 // ---------------------------------------------------------------------------

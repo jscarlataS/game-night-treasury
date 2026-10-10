@@ -270,6 +270,16 @@ details[open].result summary::before { content: "▾"; }
 .dot.other { background: var(--muted); border-radius: 50%; }
 .label { font-weight: 600; }
 
+/* ---- game night ----------------------------------------------------------- */
+
+.card.night-game { padding: 0; overflow: hidden; }
+.night-game-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 12px; padding: 10px 14px; background: var(--surface-2); border-bottom: 1px solid var(--border); }
+.seats { list-style: none; margin: 0; padding: 0; }
+.seat { display: flex; align-items: center; gap: 10px; padding: 9px 14px; border-top: 1px solid var(--border); }
+.seat:first-child { border-top: 0; }
+.seat-players { flex: 1 1 auto; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 2px 4px; }
+.seat-points { font-weight: 700; }
+
 /* ---- wins filter --------------------------------------------------------- */
 
 .filter { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin: 12px 0; }
