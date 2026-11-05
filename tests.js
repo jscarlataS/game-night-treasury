@@ -245,21 +245,21 @@ test('16.7 phantom games pull a few-game player toward the middle, never below',
 // =============================================================================
 // 16.8 Effective weight
 // =============================================================================
-const GAMES_TWO_ROWS = 'id,name,weight,from\ndune,Dune: Imperium – Uprising,100,2026-09-01\ndune,Dune: Imperium – Uprising,90,2027-02-01\n';
-test('16.8 weightFor: 2027-01-31 uses 100, 2027-02-01 uses 90', () => {
+const GAMES_TWO_ROWS = 'id,name,weight,from\ndune,Dune: Imperium – Uprising,100,2026-09-01\ndune,Dune: Imperium – Uprising,90,2027-03-01\n';
+test('16.8 weightFor: 2027-02-28 uses 100, 2027-03-01 uses 90', () => {
   const games = S.parseCsv(GAMES_TWO_ROWS, 'data/games.csv', S.HEADERS.games);
-  assert.equal(S.weightFor(games, 'dune', '2027-01-31'), 100);
-  assert.equal(S.weightFor(games, 'dune', '2027-02-01'), 90);
+  assert.equal(S.weightFor(games, 'dune', '2027-02-28'), 100);
+  assert.equal(S.weightFor(games, 'dune', '2027-03-01'), 90);
   assert.equal(S.weightFor(games, 'dune', '2026-08-31'), null);
-  assert.equal(S.weightFor(games, 'catan', '2027-02-01'), null);
+  assert.equal(S.weightFor(games, 'catan', '2027-03-01'), null);
 });
 test('16.8 through the pipeline: points already awarded do not change', () => {
-  const data = ok(['2027-01-31,dune,1,1,ruby', '2027-01-31,dune,1,2,opal', '2027-02-01,dune,1,1,ruby', '2027-02-01,dune,1,2,opal'], { games: GAMES_TWO_ROWS });
-  assert.equal(resultOf(data, 'ruby', '2027-01-31', 'dune').weight, 100);
-  assert.equal(resultOf(data, 'ruby', '2027-01-31', 'dune').points10, 1000);
-  assert.equal(resultOf(data, 'ruby', '2027-02-01', 'dune').weight, 90);
-  assert.equal(resultOf(data, 'ruby', '2027-02-01', 'dune').points10, 900);
-  assert.equal(resultOf(data, 'opal', '2027-02-01', 'dune').points10, 90);
+  const data = ok(['2027-02-28,dune,1,1,ruby', '2027-02-28,dune,1,2,opal', '2027-03-01,dune,1,1,ruby', '2027-03-01,dune,1,2,opal'], { games: GAMES_TWO_ROWS });
+  assert.equal(resultOf(data, 'ruby', '2027-02-28', 'dune').weight, 100);
+  assert.equal(resultOf(data, 'ruby', '2027-02-28', 'dune').points10, 650);
+  assert.equal(resultOf(data, 'ruby', '2027-03-01', 'dune').weight, 90);
+  assert.equal(resultOf(data, 'ruby', '2027-03-01', 'dune').points10, 585);
+  assert.equal(resultOf(data, 'opal', '2027-03-01', 'dune').points10, 315);
 });
 
 // =============================================================================
@@ -622,10 +622,181 @@ test('formatTenths and dates', () => {
   assert.equal(S.monthOf('2026-09-19'), '2026-09');
 });
 test('game names come from the latest games.csv row; game order is first appearance', () => {
-  const games = 'id,name,weight,from\ndune,Dune: Imperium – Uprising,100,2026-09-01\ncatan,Catan,60,2026-09-01\ndune,Dune Uprising,90,2027-02-01\n';
+  const games = 'id,name,weight,from\ndune,Dune: Imperium – Uprising,100,2026-09-01\ncatan,Catan,60,2026-09-01\ndune,Dune Uprising,90,2027-03-01\n';
   const data = ok([], { games });
   assert.equal(data.gameNames.get('dune'), 'Dune Uprising');
   assert.deepEqual(data.gameOrder, ['dune', 'catan']);
+});
+
+// =============================================================================
+// Seasons
+// =============================================================================
+const RULES = S.SEASON_RULES[0];
+
+test('season calendar: nothing before 2026-11, then two calendar months each', () => {
+  assert.equal(S.seasonOf('2026-10-31'), null);
+  assert.equal(S.seasonOf('2026-11-01'), 1);
+  assert.equal(S.seasonOf('2026-12-31'), 1);
+  assert.equal(S.seasonOf('2027-01-01'), 2);
+  assert.equal(S.seasonOf('2027-10-31'), 6);
+  assert.equal(S.seasonOf('2027-11-01'), 7);
+  assert.deepEqual(S.seasonSpan(1), { from: '2026-11-01', to: '2026-12-31' });
+  assert.deepEqual(S.seasonSpan(2), { from: '2027-01-01', to: '2027-02-28' });
+  assert.deepEqual(S.seasonSpan(8), { from: '2028-01-01', to: '2028-02-29' });
+});
+test('rules change between seasons: a later row never reaches back', () => {
+  const table = [RULES, { ...RULES, from: '2027-03-01', fee: 50 }];
+  assert.deepEqual([1, 2, 3, 4].map((s) => S.rulesFor(s, table).fee), [49, 49, 50, 50]);
+  for (const row of S.SEASON_RULES) assert.equal(S.seasonSpan(S.seasonOf(row.from)).from, row.from, 'a row starts on a season start');
+});
+
+const PAYOUTS = {
+  2: [65, 35],
+  3: [65, 50, 35],
+  4: [65, 55, 45, 35],
+  5: [65, 57.5, 50, 42.5, 35],
+  6: [65, 59, 53, 47, 41, 35],
+  7: [65, 60, 55, 50, 45, 40, 35],
+};
+for (const [n, row] of Object.entries(PAYOUTS)) {
+  test(`season payouts n=${n}: ${row.join(' ')}`, () => {
+    row.forEach((expected, i) => assert.equal(S.points10(100, Number(n), i + 1, RULES), expected * 10, `place ${i + 1}`));
+  });
+}
+test('seat fee: 49% of the weight, half up in tenths; the monthly boards have none', () => {
+  assert.deepEqual([100, 60, 40, 20, 10].map((w) => S.fee10(w, RULES)), [490, 294, 196, 98, 49]);
+  assert.equal(S.fee10(15, RULES), 74); // 7.35 → 7.4
+  assert.equal(S.fee10(5, RULES), 25);  // 2.45 → 2.5
+  assert.equal(S.fee10(100, S.MONTHLY_RULES), 0);
+});
+test('Dune, 4 seats: +16, +6, −4, −14 after the fee; four 2nds beat two wins and two lasts', () => {
+  const net = (p) => S.points10(100, 4, p, RULES) - S.fee10(100, RULES);
+  assert.deepEqual([1, 2, 3, 4].map(net), [160, 60, -40, -140]);
+  assert.equal(4 * net(2), 240);
+  assert.equal(2 * net(1) + 2 * net(4), 40);
+});
+test('old scores stay: a date before 2026-11-01 keeps the monthly ladder and no fee, whatever comes later', () => {
+  const october = dune4('2026-10-31', 1, 'ruby', 'opal', 'jade', 'onyx');
+  const before = ok(october);
+  const after = ok([...october, ...dune4('2026-11-01', 1, 'onyx', 'jade', 'opal', 'ruby')]);
+  for (const data of [before, after]) {
+    const r = resultOf(data, 'ruby', '2026-10-31', 'dune');
+    assert.deepEqual([r.season, r.points10, r.fee10], [null, 1000, 0]);
+  }
+  const totals = (data) => S.monthlyRows(data.playerResults, '2026-10').map((r) => [r.player, r.total10]);
+  assert.deepEqual(totals(after), totals(before));
+  const r = resultOf(after, 'onyx', '2026-11-01', 'dune');
+  assert.deepEqual([r.season, r.points10, r.fee10], [1, 650, 490]);
+});
+test('Performance stays on the old ladder inside a season', () => {
+  const data = ok(dune4('2026-11-07', 1, 'ruby', 'opal', 'jade', 'onyx'));
+  assert.deepEqual(['ruby', 'opal', 'jade', 'onyx'].map((id) => resultOf(data, id, '2026-11-07', 'dune').score), [100, 50, 30, 10]);
+  assert.equal(S.groupMean(data.playerResults), 47.5);
+});
+
+// ruby 1,4,2,2,3 and amber 2,2,3,3,2 both earn 255; jade 3,1,4,1,4 and onyx 4,3,1,4,1 both earn 245
+const FIVE_DUNE = [
+  ...dune4('2026-11-07', 1, 'ruby', 'amber', 'jade', 'onyx'),
+  ...dune4('2026-11-14', 1, 'jade', 'amber', 'onyx', 'ruby'),
+  ...dune4('2026-11-21', 1, 'onyx', 'ruby', 'amber', 'jade'),
+  ...dune4('2026-11-28', 1, 'jade', 'ruby', 'amber', 'onyx'),
+  ...dune4('2026-12-05', 1, 'onyx', 'amber', 'ruby', 'jade'),
+];
+test('season board: 100 to start, plus what you earned, minus seat fees', () => {
+  const season = S.resolveSeason(ok(FIVE_DUNE).playerResults, 1);
+  const ruby = season.ranked.find((r) => r.player === 'ruby');
+  assert.deepEqual([ruby.earned10, ruby.fees10, ruby.total10, ruby.wins, ruby.games, ruby.toGo], [2550, 2450, 1100, 1, 5, 0]);
+  assert.deepEqual(season.ranked.map((r) => [r.rank, r.player, r.total10]), [[1, 'ruby', 1100], [1, 'amber', 1100], [3, 'jade', 1000], [3, 'onyx', 1000]]);
+  assert.deepEqual(season.short, []);
+});
+test('season champion: an equal total goes to most wins, as on the monthly boards', () => {
+  const season = S.resolveSeason(ok(FIVE_DUNE).playerResults, 1);
+  assert.equal(season.winner.player, 'ruby');
+  assert.equal(season.runnerUp.player, 'amber');
+  assert.equal(season.step, 2);
+  assert.equal(season.margin10, 0);
+});
+test('treasury and most games: every seat fee adds up, ties share the honour', () => {
+  const season = S.resolveSeason(ok(FIVE_DUNE).playerResults, 1);
+  assert.equal(season.treasury10, 9800); // 5 games × 4 seats × 49.0
+  assert.deepEqual(season.mostGames, { games: 5, players: ['amber', 'jade', 'onyx', 'ruby'] });
+});
+test('under five games: below the line and never the champion, even with the best total', () => {
+  const data = ok([
+    ...FIVE_DUNE,
+    ...dune4('2026-12-12', 1, 'opal', 'sapphire', 'ruby', 'amber'),
+    ...dune4('2026-12-19', 1, 'opal', 'sapphire', 'amber', 'ruby'),
+  ]);
+  const season = S.resolveSeason(data.playerResults, 1);
+  assert.deepEqual(season.short.map((r) => [r.player, r.total10, r.toGo, r.rank]), [['opal', 1320, 3, null], ['sapphire', 1120, 3, null]]);
+  assert.deepEqual(season.ranked.map((r) => [r.rank, r.player, r.total10]), [[1, 'jade', 1000], [1, 'onyx', 1000], [3, 'ruby', 920], [3, 'amber', 920]]);
+  assert.equal(season.winner.player, 'jade');
+  assert.equal(season.order.includes(season.short[0]), false);
+});
+test('nobody on five games yet: no winner, everyone below the line, the treasury still counts', () => {
+  const season = S.resolveSeason(ok(dune4('2026-11-07', 1, 'ruby', 'opal', 'jade', 'onyx')).playerResults, 1);
+  assert.equal(season.winner, null);
+  assert.equal(season.runnerUp, null);
+  assert.equal(season.margin10, null);
+  assert.deepEqual(season.ranked, []);
+  assert.deepEqual(season.short.map((r) => [r.player, r.total10, r.toGo]), [['ruby', 1160, 4], ['opal', 1060, 4], ['jade', 960, 4], ['onyx', 860, 4]]);
+  assert.equal(season.treasury10, 1960);
+});
+test('a season stands alone: the next one does not touch it, and one without games resolves to null', () => {
+  const data = ok([...FIVE_DUNE, ...dune4('2027-01-02', 1, 'amber', 'ruby', 'jade', 'onyx')]);
+  assert.equal(S.resolveSeason(data.playerResults, 1).winner.player, 'ruby');
+  assert.deepEqual(S.resolveSeason(data.playerResults, 2).short.map((r) => r.player), ['amber', 'ruby', 'jade', 'onyx']);
+  assert.equal(S.resolveSeason(data.playerResults, 3), null);
+});
+test('a shared seat in a season: every member earns the full payout and pays a full fee', () => {
+  const season = S.resolveSeason(ok(['2026-11-07,dune,1,1,opal+jade', '2026-11-07,dune,1,2,ruby']).playerResults, 1);
+  assert.deepEqual(season.short.map((r) => [r.player, r.earned10, r.fees10, r.games]), [['opal', 650, 490, 1], ['jade', 650, 490, 1], ['ruby', 350, 490, 1]]);
+  assert.equal(season.treasury10, 1470);
+});
+test('season race: every line starts on the stake and follows earned minus fee, up and down', () => {
+  const data = ok([...dune4('2026-11-07', 1, 'ruby', 'opal', 'jade', 'onyx'), ...dune4('2026-11-14', 1, 'onyx', 'jade', 'opal', 'ruby')]);
+  const race = S.seasonRace(data.playerResults, 1);
+  assert.equal(race.start10, 1000);
+  assert.deepEqual(race.dates, ['2026-11-07', '2026-11-14']);
+  const s = Object.fromEntries(race.series.map((x) => [x.player, x.values]));
+  assert.deepEqual(s.ruby, [1160, 1020]);
+  assert.deepEqual(s.onyx, [860, 1020]);
+  assert.equal(S.raceData(ok(['2026-09-05,dune,1,1,ruby', '2026-09-05,dune,1,2,opal']).playerResults, '2026-09').start10, 0);
+});
+test('game night in a season: seats show what they earned and the fee sits apart', () => {
+  const data = ok(dune4('2026-11-07', 1, 'ruby', 'opal', 'jade', 'onyx'));
+  const night = S.nightSummary(data.instances, data.playerResults, '2026-11-07');
+  assert.equal(night.games[0].fee10, 490);
+  assert.deepEqual(night.games[0].seats.map((x) => x.points10), [650, 550, 450, 350]);
+  assert.deepEqual(night.rows.map((r) => [r.player, r.total10, r.fees10]), [['ruby', 650, 490], ['opal', 550, 490], ['jade', 450, 490], ['onyx', 350, 490]]);
+  const old = ok(dune4('2026-10-03', 1, 'ruby', 'opal', 'jade', 'onyx'));
+  assert.equal(S.nightSummary(old.instances, old.playerResults, '2026-10-03').games[0].fee10, 0);
+});
+test('show the math in a season: the payout ladder and the seat fee', () => {
+  const data = ok(dune4('2026-11-07', 1, 'ruby', 'opal', 'jade', 'onyx'));
+  const m = S.mathOf(resultOf(data, 'opal', '2026-11-07', 'dune'));
+  assert.deepEqual([m.floor, m.spread, m.bonus, S.round1(m.spreadPart), S.round1(m.score), m.points10, m.fee10], [35, 30, 0, 20, 55, 550, 490]);
+});
+test('a weight change must start a season; a new game may start any month', () => {
+  const inside = 'id,name,weight,from\ndune,Dune,100,2026-09-01\ndune,Dune,90,2027-02-01\n';
+  assertError(errorsOf([], { games: inside }), G, 3, /inside a season; a weight change must start on the first day of a season/);
+  ok([], { games: 'id,name,weight,from\ndune,Dune,100,2026-09-01\ndune,Dune,90,2027-03-01\n' });
+  ok(['2026-12-05,azul,1,1,ruby', '2026-12-05,azul,1,2,opal'], { games: 'id,name,weight,from\ndune,Dune,100,2026-09-01\nazul,Azul,30,2026-12-01\n' });
+});
+test('hall of snacks: seasons newest first, then the monthly archive', () => {
+  const data = ok(['2026-10-03,dune,1,1,ruby', '2026-10-03,dune,1,2,opal', ...FIVE_DUNE, ...dune4('2027-01-09', 1, 'ruby', 'opal', 'jade', 'onyx')]);
+  const hall = S.hallRows(data.playerResults);
+  assert.deepEqual(hall.map((h) => h.season ?? h.month), [2, 1, '2026-10']);
+  assert.deepEqual(hall.map((h) => h.winner?.player ?? null), [null, 'ruby', 'ruby']);
+  assert.deepEqual(S.seasonsWithGames(data.playerResults), [2, 1]);
+  assert.deepEqual(S.archiveMonths(data.playerResults), ['2026-10']);
+});
+test('launch replay: old results under season rules, and the real results stay untouched', () => {
+  const data = ok(dune4('2026-09-19', 1, 'ruby', 'opal', 'jade', 'onyx'));
+  const replay = S.archiveReplay(data.playerResults, RULES);
+  assert.deepEqual(replay.short.map((r) => [r.player, r.total10, r.toGo]), [['ruby', 1160, 4], ['opal', 1060, 4], ['jade', 960, 4], ['onyx', 860, 4]]);
+  assert.equal(resultOf(data, 'ruby', '2026-09-19', 'dune').points10, 1000);
+  assert.equal(resultOf(data, 'ruby', '2026-09-19', 'dune').fee10, 0);
 });
 
 // =============================================================================
@@ -640,14 +811,20 @@ test('the shipped data files parse and validate', () => {
   assert.equal(data.games.length, 6);
   assert.equal(data.gemHex.size, 24);
   for (const p of data.players) assert.match(p.hex, /^#[0-9A-F]{6}$/);
+  // old scores stay: the two monthly winners and totals as played
+  assert.deepEqual(['2026-09', '2026-10'].map((m) => {
+    const { winner } = S.resolveMonth(data.playerResults, m);
+    return [winner.player, S.formatTenths(winner.total10)];
+  }), [['aquamarine', '210.0'], ['ruby', '356.0']]);
 });
 test('constants are the documented values', () => {
   assert.equal(S.FLOOR, 10);
   assert.equal(S.SPREAD, 60);
   assert.equal(S.BONUS, 30);
   assert.equal(S.K, 1000);
-  assert.equal(S.PERIOD_MONTHS, 1);
   assert.equal(S.FLOOR + S.SPREAD + S.BONUS, 100);
+  assert.equal(S.SEASON_MONTHS, 2);
+  assert.deepEqual(S.SEASON_RULES[0], { from: '2026-11-01', floor: 35, spread: 30, bonus: 0, fee: 49, stake: 100, minGames: 5 });
 });
 
 // ---- run ---------------------------------------------------------------------

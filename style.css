@@ -133,6 +133,12 @@ code { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-si
 .site-foot { border-top: 1px solid var(--border); padding: 16px 0 32px; color: var(--muted); font-size: 0.9rem; }
 .site-foot p { margin: 0 0 4px; }
 
+details.launch summary { font-family: var(--font-display); font-weight: 600; font-size: 1.1rem; cursor: pointer; }
+.launch-list { margin: 10px 0 0; padding-left: 20px; }
+.launch-list li { margin: 4px 0; }
+.launch h3 { margin: 14px 0 2px; }
+.launch .table-wrap { box-shadow: none; }
+
 /* ---- gem mark ---------------------------------------------------------- */
 
 .gem { flex: none; vertical-align: -3px; }
@@ -146,6 +152,9 @@ code { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-si
 
 .switcher { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 12px 0 4px; }
 .month-name { margin: 0; font-size: 1.3rem; text-align: center; flex: 1; }
+.period { flex: 1; min-width: 0; text-align: center; }
+.period p { margin: 2px 0 0; }
+.archive { margin: 6px 0 0; text-align: center; }
 .switch {
   display: inline-flex; align-items: center; justify-content: center; flex: none;
   width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--border);
@@ -178,6 +187,8 @@ table.board { width: 100%; border-collapse: collapse; font-size: 0.95rem; }
 .board tr.row { cursor: pointer; }
 .board tr.row:hover, .board tr.row.open { background: var(--surface-2); }
 .board tr.detail td { background: var(--surface-2); padding: 4px 12px 14px; border-top: 0; }
+.board tr.divider td { padding: 6px 10px; background: var(--surface-2); color: var(--muted); font-size: 0.72rem; letter-spacing: 0.05em; text-transform: uppercase; text-align: center; }
+.to-go { margin: 2px 0 0 32px; }
 .expander {
   margin-left: 2px; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 50%;
   background: transparent; color: var(--muted); vertical-align: middle; cursor: pointer;

@@ -104,8 +104,15 @@ function localToday() {
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 }
 
-const currentMonth = () => localToday().slice(0, 7);
-const monthHref = (month) => (month === currentMonth() ? '#/' : `#/month/${month}`);
+const currentSeason = () => S.seasonOf(localToday());
+const seasonName = (season) => fill(T.season.name, { n: season });
+const seasonHref = (season) => (season === currentSeason() ? '#/' : `#/season/${season}`);
+const monthHref = (month) => `#/month/${month}`;
+
+function formatSeasonSpan(season) {
+  const { from, to } = S.seasonSpan(season);
+  return `${formatShortDate(from)} – ${formatDate(to)}`;
+}
 
 const playerOf = (id) => DATA.playerById.get(id) || { id, nickname: id, hex: '#888888' };
 const gameName = (id) => DATA.gameNames.get(id) || id;
@@ -172,6 +179,10 @@ function dataTable({ columns, rows, caption }) {
   table.append(el('thead', null, el('tr', null, columns.map((c) => el('th', { scope: 'col', class: c.numeric ? 'num' : null }, c.label)))));
   const tbody = el('tbody');
   rows.forEach((row, i) => {
+    if (row.divider) {
+      tbody.append(el('tr', { class: 'divider' }, el('td', { colspan: columns.length }, row.divider)));
+      return;
+    }
     const tr = el('tr', { class: 'row' });
     row.cells.forEach((cell, j) => tr.append(el('td', { class: columns[j].numeric ? 'num' : null }, cell)));
     if (!row.details) {
@@ -212,17 +223,19 @@ function mathPanel(r) {
   const f3 = m.frac.toFixed(3);
   const spread = S.round1(m.spreadPart).toFixed(1);
   const score = S.round1(m.score).toFixed(1);
+  const hasBonus = m.rules.bonus > 0;
   const row = (label, value) => el('div', { class: 'math-row' }, el('dt', null, label), el('dd', null, value));
   return el('dl', { class: 'math' },
     row(T.math.seats, String(m.n)),
     row(T.math.place, ordinal(m.p)),
     row(T.math.frac, `(${m.n} − ${m.p}) / (${m.n} − 1) = ${f3}`),
     row(T.math.floor, String(m.floor)),
-    row(T.math.spread, `${S.SPREAD} × ${f3} = ${spread}`),
-    row(T.math.bonus, String(m.bonus)),
-    row(T.math.score, `${m.floor} + ${spread} + ${m.bonus} = ${score}`),
+    row(T.math.spread, `${m.spread} × ${f3} = ${spread}`),
+    hasBonus ? row(T.math.bonus, String(m.bonus)) : null,
+    row(r.season === null ? T.math.score : T.math.payout, `${m.floor} + ${spread}${hasBonus ? ` + ${m.bonus}` : ''} = ${score}`),
     row(T.math.weight, String(m.weight)),
     row(T.math.points, `${m.weight} × ${score} / 100 = ${fmt(m.points10)}`),
+    m.fee10 ? row(T.math.fee, `${m.weight} × ${m.rules.fee} / 100 = ${fmt(m.fee10)}`) : null,
   );
 }
 
@@ -248,26 +261,35 @@ function resultDetails(r) {
 }
 
 // ---------------------------------------------------------------------------
-// Monthly board.
+// Boards: seasons and the monthly archive.
 // ---------------------------------------------------------------------------
 
-function monthSwitcher(month) {
-  const list = [...new Set([currentMonth(), ...S.monthsWithGames(DATA.playerResults), month])].sort().reverse();
-  const i = list.indexOf(month);
+/** Steps through every board, newest first: seasons, then the monthly archive. */
+function periodSwitcher({ season, month }) {
+  const pr = DATA.playerResults;
+  const seasons = [...new Set([currentSeason(), ...S.seasonsWithGames(pr), season])].filter(Boolean).sort((a, b) => b - a);
+  const months = [...new Set([...S.archiveMonths(pr), month])].filter(Boolean).sort().reverse();
+  const list = [
+    ...seasons.map((s) => ({ key: s, name: seasonName(s), href: seasonHref(s) })),
+    ...months.map((m) => ({ key: m, name: formatMonth(m), href: monthHref(m) })),
+  ];
+  const i = list.findIndex((p) => p.key === (season ?? month));
   const older = list[i + 1];
   const newer = i > 0 ? list[i - 1] : undefined;
   const link = (target, label, glyph, cls) => (target
-    ? el('a', { class: `switch ${cls}`, href: monthHref(target), 'aria-label': `${label}: ${formatMonth(target)}` }, glyph)
+    ? el('a', { class: `switch ${cls}`, href: target.href, 'aria-label': `${label}: ${target.name}` }, glyph)
     : el('span', { class: `switch ${cls} disabled`, 'aria-hidden': 'true' }, glyph));
-  return el('nav', { class: 'switcher', 'aria-label': T.month.title },
-    link(older, T.month.prev, '‹', 'prev'),
-    el('h2', { class: 'month-name' }, formatMonth(month)),
-    link(newer, T.month.next, '›', 'next'));
+  return el('nav', { class: 'switcher', 'aria-label': T.season.title },
+    link(older, T.season.prev, '‹', 'prev'),
+    el('div', { class: 'period' },
+      el('h2', { class: 'month-name' }, list[i].name),
+      season ? el('p', { class: 'muted small' }, formatSeasonSpan(season)) : null),
+    link(newer, T.season.next, '›', 'next'));
 }
 
 function podium(resolved) {
   const top = resolved.order.slice(0, 3);
-  return el('ol', { class: 'podium', 'aria-label': T.month.podium }, top.map((row, i) => {
+  return el('ol', { class: 'podium', 'aria-label': T.season.podium }, top.map((row, i) => {
     const p = playerOf(row.player);
     return el('li', { class: `step place-${i + 1}`, style: { '--gem': p.hex } },
       el('span', { class: 'step-rank' }, ordinal(i + 1)),
@@ -282,26 +304,29 @@ function niceStep(maxValue) {
 }
 
 /** Inline SVG race chart: cumulative totals per player per game date. */
-function buildRace(race, width) {
+function buildRace(race, width, labels) {
   const n = race.dates.length;
   const wide = width >= 600;
   const H = 280;
   const m = { top: 16, right: wide ? 130 : 14, bottom: 34, left: 40 };
   const plotW = width - m.left - m.right;
   const plotH = H - m.top - m.bottom;
-  const maxValue = Math.max(10, ...race.series.map((s) => s.final10)) / 10;
-  const step = niceStep(maxValue);
-  const top = Math.max(step, Math.ceil(maxValue / step) * step);
+  const values = [race.start10, ...race.series.flatMap((s) => s.values)].map((v) => v / 10);
+  const low = Math.min(...values);
+  const high = Math.max(...values);
+  const step = niceStep(Math.max(10, high - low));
+  const bottom = Math.floor(low / step) * step;
+  const top = Math.max(bottom + step, Math.ceil(high / step) * step);
   const xOf = (i) => m.left + (i / n) * plotW; // i = 0 is the start point
-  const yOf = (v10) => m.top + plotH - (v10 / 10 / top) * plotH;
+  const yOf = (v10) => m.top + plotH - ((v10 / 10 - bottom) / (top - bottom)) * plotH;
 
   const root = svg('svg', {
     class: 'race-svg', width, height: H, viewBox: `0 0 ${width} ${H}`, role: 'img',
-    'aria-label': `${T.month.chartTitle}. ${T.month.chartCaption}`,
+    'aria-label': `${labels.chartTitle}. ${labels.chartCaption}`,
   });
 
   const grid = svg('g', { class: 'grid' });
-  for (let v = 0; v <= top; v += step) {
+  for (let v = bottom; v <= top; v += step) {
     const y = yOf(v * 10);
     grid.append(svg('line', { x1: m.left, x2: width - m.right, y1: y, y2: y }));
     grid.append(svg('text', { class: 'axis-label', x: m.left - 8, y, 'text-anchor': 'end', 'dominant-baseline': 'middle' }, v));
@@ -316,7 +341,7 @@ function buildRace(race, width) {
     xLabels.append(svg('text', {
       class: 'axis-label', x: xOf(i), y: H - m.bottom + 18,
       'text-anchor': i === 0 ? 'start' : i === n ? 'end' : 'middle',
-    }, i === 0 ? T.month.chartStart : formatShortDate(race.dates[i - 1])));
+    }, i === 0 ? labels.chartStart : formatShortDate(race.dates[i - 1])));
   }
   root.append(xLabels);
 
@@ -324,7 +349,7 @@ function buildRace(race, width) {
   const markers = svg('g', { class: 'markers' });
   for (const s of [...race.series].reverse()) { // leader drawn last, so on top
     const hex = playerOf(s.player).hex;
-    const pts = [[xOf(0), yOf(0)], ...s.values.map((v, i) => [xOf(i + 1), yOf(v)])];
+    const pts = [[xOf(0), yOf(race.start10)], ...s.values.map((v, i) => [xOf(i + 1), yOf(v)])];
     lines.append(svg('path', {
       d: pts.map(([x, y], i) => `${i ? 'L' : 'M'}${x.toFixed(1)} ${y.toFixed(1)}`).join(' '),
       fill: 'none', stroke: hex, 'stroke-width': 2, 'stroke-linejoin': 'round', 'stroke-linecap': 'round',
@@ -363,9 +388,9 @@ function buildRace(race, width) {
     cross.setAttribute('x2', cx);
     cross.setAttribute('visibility', 'visible');
     for (const mk of markers.children) mk.classList.toggle('active', Number(mk.dataset.col) === i);
-    const entries = race.series.map((s) => ({ player: s.player, v: i === 0 ? 0 : s.values[i - 1] })).sort((a, b) => b.v - a.v);
+    const entries = race.series.map((s) => ({ player: s.player, v: i === 0 ? race.start10 : s.values[i - 1] })).sort((a, b) => b.v - a.v);
     tip.replaceChildren(
-      el('div', { class: 'tip-title' }, i === 0 ? capitalise(T.month.chartStart) : formatDate(race.dates[i - 1])),
+      el('div', { class: 'tip-title' }, i === 0 ? capitalise(labels.chartStart) : formatDate(race.dates[i - 1])),
       el('ul', null, entries.map((e) => el('li', null, gemMark(playerOf(e.player).hex, 12), el('span', { class: 'tip-name' }, playerOf(e.player).nickname), el('span', { class: 'tip-val num' }, fmt(e.v))))),
     );
     tip.hidden = false;
@@ -388,18 +413,18 @@ function buildRace(race, width) {
   return [root, tip];
 }
 
-function raceChart(race) {
+function raceChart(race, labels) {
   const wrap = el('div', { class: 'chart' });
   const legend = el('ul', { class: 'legend' }, race.series.map((s) => el('li', null, playerLink(s.player, 14))));
   const figure = el('figure', { class: 'race' },
-    el('figcaption', null, el('span', { class: 'chart-title' }, T.month.chartTitle), el('span', { class: 'chart-caption' }, T.month.chartCaption)),
+    el('figcaption', null, el('span', { class: 'chart-title' }, labels.chartTitle), el('span', { class: 'chart-caption' }, labels.chartCaption)),
     wrap, legend);
   let lastWidth = 0;
   const draw = () => {
     const w = Math.floor(wrap.clientWidth);
     if (!w || w === lastWidth) return;
     lastWidth = w;
-    wrap.replaceChildren(...buildRace(race, w));
+    wrap.replaceChildren(...buildRace(race, w, labels));
   };
   if (typeof ResizeObserver === 'function') new ResizeObserver(draw).observe(wrap);
   else {
@@ -409,10 +434,73 @@ function raceChart(race) {
   return figure;
 }
 
+/** The standings: everyone who qualified, then a line, then who is still short of games. */
+function seasonTable({ ranked, short }, rules, caption, rowDetails = null) {
+  const toRow = (row) => ({
+    cells: [
+      row.toGo
+        ? [whoCell(T.season.unranked, row.player), el('p', { class: 'to-go muted small' }, fill(row.toGo === 1 ? T.season.toGo.one : T.season.toGo.other, { n: row.toGo }))]
+        : whoCell(row.rank, row.player),
+      fmt(row.total10), row.wins, row.games,
+    ],
+    details: rowDetails && (() => rowDetails(row)),
+  });
+  return dataTable({
+    caption,
+    columns: [{ label: T.season.cols.player }, { label: T.season.cols.points, numeric: true }, { label: T.season.cols.wins, numeric: true }, { label: T.season.cols.games, numeric: true }],
+    rows: [...ranked.map(toRow), ...(short.length ? [{ divider: fill(T.season.shortLine, rules) }] : []), ...short.map(toRow)],
+  });
+}
+
+function launchPanel(open) {
+  const L = T.season.launch;
+  const rules = S.rulesFor(1);
+  return el('details', { class: 'card launch', open },
+    el('summary', null, L.title),
+    el('ul', { class: 'launch-list' }, L.changes.map((line) => el('li', null, line))),
+    el('h3', null, L.replay),
+    el('p', { class: 'muted small' }, L.replayNote),
+    seasonTable(S.archiveReplay(DATA.playerResults, rules), rules, L.replay));
+}
+
+function viewSeason(season) {
+  const pr = DATA.playerResults;
+  const resolved = S.resolveSeason(pr, season);
+  const rules = S.rulesFor(season);
+  const parts = [viewHead(T.season.title, fill(T.season.rule, rules)), periodSwitcher({ season })];
+  if (season === 1) parts.push(launchPanel(!resolved));
+  if (!resolved) {
+    parts.push(el('p', { class: 'empty' }, T.season.empty));
+  } else {
+    const { mostGames } = resolved;
+    parts.push(el('section', { class: 'card podium-card' },
+      el('h2', { class: 'visually-hidden' }, T.season.podium),
+      resolved.winner ? podium(resolved) : el('p', { class: 'note' }, fill(T.season.noPodium, rules)),
+      resolved.step > 1 ? el('p', { class: 'note' }, `${T.season.decidedBy} ${T.seasonTiebreak[resolved.step - 1]}.`) : null,
+      el('p', { class: 'prize muted small' }, T.season.prize),
+      el('p', { class: 'prize muted small' }, fill(T.season.treasury, { fees: fmt(resolved.treasury10) })),
+      el('p', { class: 'prize muted small' }, `${T.season.mostGames}: `, mostGames.players.map((id, i) => [i ? ', ' : null, playerLink(id, 14)]), ` (${mostGames.games})`)));
+    parts.push(raceChart(S.seasonRace(pr, season), T.season));
+    parts.push(el('section', null,
+      el('h2', null, T.season.standings),
+      seasonTable(resolved, rules, `${T.season.standings}, ${seasonName(season)}`, (row) => el('div', null,
+        statList([[T.season.start, fmt(rules.stake * 10)], [T.season.earned, fmt(row.earned10)], [T.season.fees, fmt(row.fees10)]]),
+        el('h3', { class: 'detail-title' }, T.season.results),
+        el('div', { class: 'results' }, row.results.map(resultDetails))))));
+  }
+  return { node: fragment(parts), title: seasonName(season), nav: 'season' };
+}
+
+/** An old link to a month: the archive board, or the season that month now belongs to. */
+function viewMonthOrSeason(month) {
+  const season = S.seasonOf(`${month}-01`);
+  return season === null ? viewMonth(month) : viewSeason(season);
+}
+
 function viewMonth(month) {
   const pr = DATA.playerResults;
   const resolved = S.resolveMonth(pr, month);
-  const parts = [viewHead(T.month.title, T.month.rule), monthSwitcher(month)];
+  const parts = [viewHead(T.month.title, T.month.rule), periodSwitcher({ month }), el('p', { class: 'archive muted small' }, T.month.archive)];
   if (!resolved) {
     parts.push(el('p', { class: 'empty' }, pr.length ? T.month.empty : T.month.emptyNoData));
   } else {
@@ -421,7 +509,7 @@ function viewMonth(month) {
       podium(resolved),
       resolved.step > 1 ? el('p', { class: 'note' }, `${T.month.decidedBy} ${T.tiebreak[resolved.step - 1]}.`) : null,
       el('p', { class: 'prize muted small' }, T.month.prize)));
-    parts.push(raceChart(S.raceData(pr, month)));
+    parts.push(raceChart(S.raceData(pr, month), T.month));
     parts.push(el('section', null,
       el('h2', null, T.month.standings),
       dataTable({
@@ -433,7 +521,7 @@ function viewMonth(month) {
         })),
       })));
   }
-  return { node: fragment(parts), title: formatMonth(month), nav: 'month' };
+  return { node: fragment(parts), title: formatMonth(month), nav: 'season' };
 }
 
 // ---------------------------------------------------------------------------
@@ -461,7 +549,7 @@ function nightGame(g) {
   return el('section', { class: 'card night-game' },
     el('header', { class: 'night-game-head' },
       el('h3', null, title),
-      el('span', { class: 'muted small' }, fill(T.night.meta, { n: g.n, weight: g.weight }))),
+      el('span', { class: 'muted small' }, fill(g.fee10 ? T.night.metaFee : T.night.meta, { n: g.n, weight: g.weight, fee: fmt(g.fee10) }))),
     el('ol', { class: 'seats' }, g.seats.map((seat) => el('li', { class: 'seat' },
       placeChip(seat), seatPlayers(seat.players), el('span', { class: 'seat-points num' }, fmt(seat.points10))))));
 }
@@ -476,6 +564,7 @@ function viewNight(date) {
   }
   parts.push(nightSwitcher(date, dates));
   const night = S.nightSummary(DATA.instances, DATA.playerResults, date);
+  const season = S.seasonOf(date);
   if (!night) parts.push(el('p', { class: 'empty' }, T.night.empty));
   else {
     parts.push(el('section', null,
@@ -485,10 +574,15 @@ function viewNight(date) {
         columns: [{ label: T.night.cols.player }, { label: T.night.cols.points, numeric: true }, { label: T.night.cols.wins, numeric: true }, { label: T.night.cols.games, numeric: true }],
         rows: night.rows.map((row) => ({
           cells: [whoCell(row.rank, row.player), fmt(row.total10), row.wins, row.games],
-          details: () => el('div', null, el('h3', { class: 'detail-title' }, T.night.results), el('div', { class: 'results' }, row.results.map(resultDetails))),
+          details: () => el('div', null,
+            row.fees10 ? statList([[T.night.fees, fmt(row.fees10)]]) : null,
+            el('h3', { class: 'detail-title' }, T.night.results),
+            el('div', { class: 'results' }, row.results.map(resultDetails))),
         })),
       }),
-      el('p', { class: 'small' }, el('a', { href: monthHref(S.monthOf(date)) }, `${T.ui.viewMonth}: ${formatMonth(S.monthOf(date))}`))));
+      el('p', { class: 'small' }, season
+        ? el('a', { href: seasonHref(season) }, `${T.ui.viewSeason}: ${seasonName(season)}`)
+        : el('a', { href: monthHref(S.monthOf(date)) }, `${T.ui.viewMonth}: ${formatMonth(S.monthOf(date))}`))));
     parts.push(el('section', null, el('h2', null, T.night.games), night.games.map(nightGame)));
   }
   return { node: fragment(parts), title: `${T.night.title}, ${formatDate(date)}`, nav: 'night' };
@@ -655,19 +749,28 @@ function viewHall() {
   else {
     parts.push(dataTable({
       caption: T.hall.title,
-      columns: [{ label: T.hall.cols.month }, { label: T.hall.cols.winner }, { label: T.hall.cols.total, numeric: true }, { label: T.hall.cols.margin, numeric: true }],
-      rows: hall.map((h) => ({
-        cells: [
-          el('a', { href: monthHref(h.month), 'aria-label': formatMonth(h.month) }, formatShortMonth(h.month)),
-          el('span', { class: 'who' }, playerLink(h.winner.player), h.step > 1 ? el('span', { class: 'chip' }, T.hall.tieChip) : null),
-          fmt(h.winner.total10),
-          h.margin10 === null ? T.hall.noRival : fmt(h.margin10),
-        ],
-        details: () => statList([
-          [T.hall.runnerUp, h.runnerUp ? el('span', { class: 'who' }, playerLink(h.runnerUp.player, 14), el('span', { class: 'num' }, fmt(h.runnerUp.total10))) : '—'],
-          [T.hall.decidedBy, capitalise(T.tiebreak[h.step - 1])],
-        ]),
-      })),
+      columns: [{ label: T.hall.cols.when }, { label: T.hall.cols.winner }, { label: T.hall.cols.total, numeric: true }, { label: T.hall.cols.margin, numeric: true }],
+      rows: hall.map((h) => {
+        const live = Boolean(h.season) && S.seasonSpan(h.season).to >= localToday();
+        return {
+          cells: [
+            h.season
+              ? el('a', { href: seasonHref(h.season) }, seasonName(h.season))
+              : el('a', { href: monthHref(h.month), 'aria-label': formatMonth(h.month) }, formatShortMonth(h.month)),
+            h.winner
+              ? el('span', { class: 'who' }, playerLink(h.winner.player), live ? el('span', { class: 'chip' }, T.hall.leadingChip) : null, h.step > 1 ? el('span', { class: 'chip' }, T.hall.tieChip) : null)
+              : (live ? T.hall.noLeader : T.hall.noChampion),
+            h.winner ? fmt(h.winner.total10) : '—',
+            h.winner ? (h.margin10 === null ? T.hall.noRival : fmt(h.margin10)) : '—',
+          ],
+          details: () => statList([
+            [T.hall.runnerUp, h.runnerUp ? el('span', { class: 'who' }, playerLink(h.runnerUp.player, 14), el('span', { class: 'num' }, fmt(h.runnerUp.total10))) : '—'],
+            [T.hall.decidedBy, h.winner ? capitalise((h.season ? T.seasonTiebreak : T.tiebreak)[h.step - 1]) : '—'],
+            h.season ? [T.hall.treasury, el('span', { class: 'num' }, fmt(h.treasury10))] : null,
+            h.season ? [T.hall.mostGames, el('span', { class: 'who' }, h.mostGames.players.map((id) => playerLink(id, 14)), el('span', { class: 'num' }, h.mostGames.games))] : null,
+          ].filter(Boolean)),
+        };
+      }),
     }));
   }
   return { node: fragment(parts), title: T.hall.title, nav: 'hall' };
@@ -690,7 +793,7 @@ function renderChrome() {
   document.getElementById('tagline').textContent = T.site.tagline;
   const nav = document.getElementById('nav');
   nav.setAttribute('aria-label', T.nav.label);
-  nav.replaceChildren(...[['month', '#/'], ['night', '#/night'], ['performance', '#/performance'], ['wins', '#/wins'], ['hall', '#/hall']]
+  nav.replaceChildren(...[['season', '#/'], ['night', '#/night'], ['performance', '#/performance'], ['wins', '#/wins'], ['hall', '#/hall']]
     .map(([key, href]) => el('a', { href, 'data-nav': key }, T.nav[key])));
   document.getElementById('foot').replaceChildren(el('p', null, T.site.footer), el('p', { class: 'muted small' }, T.site.computed));
   const skip = document.getElementById('skip');
@@ -709,8 +812,9 @@ function parseRoute() {
   } catch {
     return viewNotFound();
   }
-  if (parts.length === 0) return viewMonth(currentMonth());
-  if (parts[0] === 'month' && parts.length === 2 && S.isValidMonth(parts[1])) return viewMonth(parts[1]);
+  if (parts.length === 0) return viewSeason(currentSeason());
+  if (parts[0] === 'season' && parts.length === 2 && /^[1-9][0-9]*$/.test(parts[1])) return viewSeason(Number(parts[1]));
+  if (parts[0] === 'month' && parts.length === 2 && S.isValidMonth(parts[1])) return viewMonthOrSeason(parts[1]);
   if (parts[0] === 'night' && parts.length === 1) return viewNight(null);
   if (parts[0] === 'night' && parts.length === 2 && S.isValidDate(parts[1])) return viewNight(parts[1]);
   if (parts[0] === 'performance' && parts.length === 1) return viewPerformance();

@@ -11,8 +11,9 @@
 
 // ---------------------------------------------------------------------------
 // Constants (requirements sections 4, 6, 7).
-// Policy: these may change retroactively until 2026-12-31 (trial period) and
-// are fixed afterwards. They are not data and are not effective-dated.
+// Policy: these are frozen, because they price every old score: the monthly
+// boards of Sep and Oct 2026 and the Performance board. They are not data and
+// are not effective-dated.
 // ---------------------------------------------------------------------------
 
 /** Placement score for showing up: "ten for playing". */
@@ -24,8 +25,18 @@ export const BONUS = 30;
 /** Phantom weight added at the group's mean in the performance formula:
  *  "ten phantom Dune games at the group's average" (10 games × weight 100). */
 export const K = 1000;
-/** Length of a prize period in calendar months. The v1 UI assumes 1. */
-export const PERIOD_MONTHS = 1;
+/** The rules of the monthly boards: that ladder, with no seat fee. */
+export const MONTHLY_RULES = { floor: FLOOR, spread: SPREAD, bonus: BONUS, fee: 0 };
+/** Length of a season in calendar months. */
+export const SEASON_MONTHS = 2;
+/**
+ * Season rules, oldest first. A row holds from its `from`, the first day of a
+ * season, until the next row. Rules change between seasons by adding a row and
+ * never during one, and a row is not edited once its season has results.
+ */
+export const SEASON_RULES = [
+  { from: '2026-11-01', floor: 35, spread: 30, bonus: 0, fee: 49, stake: 100, minGames: 5 },
+];
 
 /** Data files, relative to index.html, and their exact headers. */
 export const FILES = {
@@ -51,20 +62,25 @@ export function frac(n, p) {
 }
 
 /** Placement score on the 0–100 scale, unrounded. */
-export function score(n, p) {
-  return FLOOR + SPREAD * frac(n, p) + (p === 1 ? BONUS : 0);
+export function score(n, p, rules = MONTHLY_RULES) {
+  return rules.floor + rules.spread * frac(n, p) + (p === 1 ? rules.bonus : 0);
 }
 
 /**
  * Points in tenths: round1(weight × score / 100) × 10, computed in integer
  * arithmetic so that exact halves round up regardless of floating point.
  */
-export function points10(weight, n, p) {
+export function points10(weight, n, p, rules = MONTHLY_RULES) {
   // weight × score × (n − 1), which is an integer whenever the constants are
-  const num = weight * (FLOOR * (n - 1) + SPREAD * (n - p) + (p === 1 ? BONUS * (n - 1) : 0));
+  const num = weight * (rules.floor * (n - 1) + rules.spread * (n - p) + (p === 1 ? rules.bonus * (n - 1) : 0));
   const den = 100 * (n - 1);
   // tenths = 10·num/den; half up: floor(10·num/den + 1/2) = floor((20·num + den) / (2·den))
   return Math.floor((20 * num + den) / (2 * den));
+}
+
+/** A seat's fee in tenths: round1(weight × fee / 100) × 10, half up in integer arithmetic. */
+export function fee10(weight, rules) {
+  return Math.floor((2 * weight * rules.fee + 10) / 20);
 }
 
 /** Points as a number with one decimal (display convenience; sums use points10). */
@@ -91,12 +107,15 @@ export function mathOf(r) {
     n: r.n,
     p: r.p,
     frac: f,
-    floor: FLOOR,
-    spreadPart: SPREAD * f,
-    bonus: r.p === 1 ? BONUS : 0,
-    score: score(r.n, r.p),
+    rules: r.rules,
+    floor: r.rules.floor,
+    spread: r.rules.spread,
+    spreadPart: r.rules.spread * f,
+    bonus: r.p === 1 ? r.rules.bonus : 0,
+    score: score(r.n, r.p, r.rules),
     weight: r.weight,
     points10: r.points10,
+    fee10: r.fee10,
   };
 }
 
@@ -135,6 +154,36 @@ export function weightFor(games, gameId, date) {
     if (g.id === gameId && g.from <= date && (best === null || g.from > best.from)) best = g;
   }
   return best === null ? null : Number(best.weight);
+}
+
+// ---------------------------------------------------------------------------
+// Seasons: two calendar months each from 2026-11-01 on. Earlier months stay
+// monthly boards.
+// ---------------------------------------------------------------------------
+
+const monthCount = (month) => {
+  const [y, m] = month.split('-').map(Number);
+  return y * 12 + m - 1;
+};
+const monthAt = (count) => `${Math.floor(count / 12)}-${String((count % 12) + 1).padStart(2, '0')}`;
+const FIRST_SEASON_MONTH = monthCount(monthOf(SEASON_RULES[0].from));
+
+/** The season `date` falls in, starting at 1, or null before the first season. */
+export function seasonOf(date) {
+  const months = monthCount(monthOf(date)) - FIRST_SEASON_MONTH;
+  return months < 0 ? null : Math.floor(months / SEASON_MONTHS) + 1;
+}
+
+/** First and last day of a season. */
+export function seasonSpan(season) {
+  const first = FIRST_SEASON_MONTH + (season - 1) * SEASON_MONTHS;
+  return { from: `${monthAt(first)}-01`, to: lastDayOfMonth(monthAt(first + SEASON_MONTHS - 1)) };
+}
+
+/** The rules of a season: the last row starting on or before its first day. */
+export function rulesFor(season, table = SEASON_RULES) {
+  const { from } = seasonSpan(season);
+  return table.filter((row) => row.from <= from).at(-1);
 }
 
 // ---------------------------------------------------------------------------
@@ -233,6 +282,16 @@ export function validate(raw, today) {
     if (gameFromKeys.has(key)) fail('games', g.line, `duplicate (id, from) "${g.id}, ${g.from}"`);
     else gameFromKeys.add(key);
     gameIds.add(g.id);
+  }
+
+  // 5. a weight change starts with a season, so one season never mixes two weights; a new game may start any month
+  for (const g of raw.games) {
+    if (!isValidDate(g.from)) continue;
+    const season = seasonOf(g.from);
+    const first = raw.games.filter((x) => x.id === g.id && isValidDate(x.from)).map((x) => x.from).sort()[0];
+    if (g.from !== first && season !== null && g.from !== seasonSpan(season).from) {
+      fail('games', g.line, `from "${g.from}" is inside a season; a weight change must start on the first day of a season`);
+    }
   }
 
   // 2, 3, 5. results: row-level checks
@@ -340,21 +399,29 @@ export function derive(raw) {
     const n = inst.seats.length;
     const maxPlace = Math.max(...inst.seats.map((s) => s.place));
     const weight = weightFor(games, inst.game, inst.date);
+    const season = seasonOf(inst.date);
+    const rules = season === null ? MONTHLY_RULES : rulesFor(season);
+    const fee = fee10(weight, rules);
     inst.n = n;
     inst.weight = weight;
+    inst.rules = rules;
+    inst.fee10 = fee;
     for (const seat of inst.seats) {
       for (const pid of seat.players) {
         playerResults.push({
           player: pid,
           date: inst.date,
           month: monthOf(inst.date),
+          season,
+          rules,
           game: inst.game,
           round: inst.round,
           n,
           p: seat.place,
           weight,
-          score: score(n, seat.place),
-          points10: points10(weight, n, seat.place),
+          score: score(n, seat.place), // the old ladder, so Performance keeps one scale
+          points10: points10(weight, n, seat.place, rules),
+          fee10: fee,
           win: seat.place === 1,
           last: seat.place !== 1 && seat.place === maxPlace,
           seatmates: seat.players.filter((x) => x !== pid),
@@ -425,10 +492,11 @@ function totalsRows(results) {
   for (const r of results) {
     let row = byPlayer.get(r.player);
     if (!row) {
-      row = { player: r.player, total10: 0, wins: 0, games: 0, results: [] };
+      row = { player: r.player, total10: 0, fees10: 0, wins: 0, games: 0, results: [] };
       byPlayer.set(r.player, row);
     }
     row.total10 += r.points10;
+    row.fees10 += r.fee10;
     row.games += 1;
     if (r.win) row.wins += 1;
     row.results.push(r);
@@ -452,14 +520,10 @@ export const TIEBREAK_KEYS = [
 ];
 
 /**
- * Resolve a month: rows (shared ranks), the fully ordered list, the winner,
- * the runner-up, the deciding step and the margin to 2nd in tenths.
- * Returns null for a month with no games.
+ * Settle a board: the fully ordered list, the winner, the runner-up, the
+ * deciding step and the margin to 2nd in tenths, with P taken as of `asOf`.
  */
-export function resolveMonth(playerResults, month) {
-  const rows = monthlyRows(playerResults, month);
-  if (rows.length === 0) return null;
-  const asOf = lastDayOfMonth(month);
+function settle(playerResults, rows, asOf) {
   const perf = performanceMap(playerResults.filter((r) => r.date <= asOf));
   for (const row of rows) {
     row.bestWonWeight = Math.max(0, ...row.results.filter((r) => r.win).map((r) => r.weight));
@@ -481,36 +545,118 @@ export function resolveMonth(playerResults, month) {
     }
   }
   return {
-    month,
-    rows,
     order,
-    winner: order[0],
+    winner: order[0] ?? null,
     runnerUp: order.length > 1 ? order[1] : null,
     step,
     margin10: order.length > 1 ? order[0].total10 - order[1].total10 : null,
   };
 }
 
-/** Race chart data: cumulative totals per player at each distinct date in the month. */
-export function raceData(playerResults, month) {
-  const inMonth = playerResults.filter((r) => r.month === month);
-  const dates = [...new Set(inMonth.map((r) => r.date))].sort();
-  const players = [...new Set(inMonth.map((r) => r.player))];
+/** Resolve a month: rows (shared ranks) plus the settled board. Returns null for a month with no games. */
+export function resolveMonth(playerResults, month) {
+  const rows = monthlyRows(playerResults, month);
+  if (rows.length === 0) return null;
+  return { month, rows, ...settle(playerResults, rows, lastDayOfMonth(month)) };
+}
+
+/** Running totals per player at each distinct date, every line starting at `start10`. */
+function raceOf(results, start10) {
+  const dates = [...new Set(results.map((r) => r.date))].sort();
+  const players = [...new Set(results.map((r) => r.player))];
   const series = players.map((player) => {
-    let cum = 0;
+    let cum = start10;
     const values = dates.map((d) => {
-      for (const r of inMonth) if (r.player === player && r.date === d) cum += r.points10;
+      for (const r of results) if (r.player === player && r.date === d) cum += r.points10 - r.fee10;
       return cum;
     });
     return { player, values, final10: cum };
   });
   series.sort((a, b) => b.final10 - a.final10 || (a.player < b.player ? -1 : 1));
-  return { dates, series };
+  return { start10, dates, series };
 }
 
-/** Hall of snacks: one resolved entry per month with games, newest first. */
+/** Race chart data: cumulative totals per player at each distinct date in the month. */
+export function raceData(playerResults, month) {
+  return raceOf(playerResults.filter((r) => r.month === month), 0);
+}
+
+// ---------------------------------------------------------------------------
+// Season board.
+// ---------------------------------------------------------------------------
+
+/** Seasons that have at least one game instance, newest first. */
+export function seasonsWithGames(playerResults) {
+  return [...new Set(playerResults.map((r) => r.season).filter((s) => s !== null))].sort((a, b) => b - a);
+}
+
+/** Months before the first season that have games, newest first. */
+export function archiveMonths(playerResults) {
+  return monthsWithGames(playerResults.filter((r) => r.season === null));
+}
+
+/**
+ * A season board: your stake, plus what you earned, minus your seat fees.
+ * `ranked` holds the players with enough games, with shared ranks; `short`
+ * holds the rest, best total first, each with the games still to play.
+ */
+function boardOf(results, rules) {
+  const rows = totalsRows(results);
+  for (const row of rows) {
+    row.earned10 = row.total10;
+    row.total10 = rules.stake * 10 + row.earned10 - row.fees10;
+    row.toGo = Math.max(0, rules.minGames - row.games);
+  }
+  const byTotal = (a, b) => b.total10 - a.total10;
+  const short = rows.filter((row) => row.toGo > 0).sort(byTotal);
+  for (const row of short) row.rank = null;
+  return { ranked: rankSorted(rows.filter((row) => row.toGo === 0), byTotal), short };
+}
+
+/**
+ * Resolve a season: the board, the settled board among those who qualified,
+ * the treasury of seat fees and who played the most games. `winner` is null
+ * while nobody qualifies. Returns null for a season with no games.
+ */
+export function resolveSeason(playerResults, season) {
+  const results = playerResults.filter((r) => r.season === season);
+  if (results.length === 0) return null;
+  const rules = rulesFor(season);
+  const { ranked, short } = boardOf(results, rules);
+  const everyone = [...ranked, ...short];
+  const games = Math.max(...everyone.map((row) => row.games));
+  return {
+    season,
+    rules,
+    ranked,
+    short,
+    ...settle(playerResults, ranked, seasonSpan(season).to),
+    treasury10: results.reduce((sum, r) => sum + r.fee10, 0),
+    mostGames: { games, players: everyone.filter((row) => row.games === games).map((row) => row.player).sort() },
+  };
+}
+
+/** Race chart data for a season: every balance from the stake on, up and down. */
+export function seasonRace(playerResults, season) {
+  return raceOf(playerResults.filter((r) => r.season === season), rulesFor(season).stake * 10);
+}
+
+/** What-if for the launch: the months before the seasons as one board under `rules`. Changes no score. */
+export function archiveReplay(playerResults, rules) {
+  const results = playerResults.filter((r) => r.season === null).map((r) => ({
+    ...r,
+    points10: points10(r.weight, r.n, r.p, rules),
+    fee10: fee10(r.weight, rules),
+  }));
+  return boardOf(results, rules);
+}
+
+/** Hall of snacks: one resolved entry per period with games, newest first: seasons, then the monthly archive. */
 export function hallRows(playerResults) {
-  return monthsWithGames(playerResults).map((m) => resolveMonth(playerResults, m));
+  return [
+    ...seasonsWithGames(playerResults).map((s) => resolveSeason(playerResults, s)),
+    ...archiveMonths(playerResults).map((m) => resolveMonth(playerResults, m)),
+  ];
 }
 
 // ---------------------------------------------------------------------------
@@ -538,11 +684,12 @@ export function nightSummary(instances, playerResults, date) {
       repeated: tonight.filter((i) => i.game === inst.game).length > 1,
       n: inst.n,
       weight: inst.weight,
+      fee10: inst.fee10,
       seats: [...inst.seats].sort((a, b) => a.place - b.place || a.line - b.line).map((s) => ({
         players: s.players,
         n: inst.n,
         p: s.place,
-        points10: points10(inst.weight, inst.n, s.place),
+        points10: points10(inst.weight, inst.n, s.place, inst.rules),
         win: s.place === 1,
         last: s.place !== 1 && s.place === maxPlace,
       })),
